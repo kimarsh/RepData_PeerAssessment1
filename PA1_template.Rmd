@@ -8,18 +8,198 @@ output:
 
 ## Loading and preprocessing the data
 
+First I'll set the working directory, open up my favorite libraries, read in the dataset, and investigate it a little bit. I copied the dataset into the working directory.
+
+```{r, message=FALSE}
+library(plyr)
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+setwd("C:/Users/Kim/Desktop/coursera/reproducible_research/RepData_PeerAssessment1")
+dat <- read.csv("activity.csv")
+dim(dat)
+head(dat)
+tail(dat)
+summary(dat)
+str(dat)
+```
+
+Date was read in as a factor. I'll use the _lubridate_ package to turn it into a date. 
+
+```{r}
+dat$date <- ymd(dat$date)
+# make sure it worked
+class(dat$date)
+```
 
 
 ## What is mean total number of steps taken per day?
 
+To calculate mean total number of steps per day, I will:
+
+1. Use _dplyr_ to group the data frame by date  
+2. Create a new dataframe of sums  
+3. Investigate the distribution of daily totals using a histogram  
+4. Calculate the mean and median of these values. The assignment instructions said to ignore NAs, so I will set `na.rm=TRUE` for these functions.  
+
+```{r, fig.height=4.5}
+byday <- dat %>%
+    group_by(date) %>%
+    summarize(steps.total = sum(steps))
+
+# check it
+head(byday)
+summary(byday)
+
+hist(byday$steps.total, col="lightgray",
+     breaks=10,
+     main="Histogram of total number of steps per day",
+     xlab="# steps")
+
+```
+
+
+__Calculating the mean and median:__
+
+```{r}
+mean(byday$steps.total, na.rm=TRUE)
+median(byday$steps.total, na.rm=TRUE)
+```
+
+The mean and median are almost identical.  
 
 
 ## What is the average daily activity pattern?
 
+For this portion, we want to look at each 5-minute interval, averaged across all days. So I want to use _dplyr_ to make a data frame of average # of steps by interval.
+
+```{r}
+byint <- dat %>%
+    group_by(interval) %>%
+    summarize(steps.int = mean(steps, na.rm=TRUE))
+
+# check it
+head(byint)
+dim(byint)
+summary(byint)
+```
+
+Now to make a plot:
+
+```{r, fig.height=4.5}
+ggplot(byint, aes(x=interval, y=steps.int)) +
+    geom_line(col="darkred", lwd=1) +
+    geom_point(col="darkred") +
+    theme_bw() +
+    ggtitle("Number of steps taken throughout day \naveraged across all days") +
+    xlab("Time Interval") +
+    ylab("# steps in 5-minute interval")
+```
+
+Looks like the interval with the highest number of steps is in the morning. Let's find out:
+
+```{r}
+highest <- filter(byint, steps.int == max(steps.int))
+```
+
+
+The interval with the maximum number of steps is `highest$interval`, __`r highest$interval`__, with an average of `highest$steps.int`, __`r highest$steps.int`__ steps.
 
 
 ## Imputing missing values
 
+How many missing values are in the dataset overall?
+
+```{r}
+sum(is.na(dat$steps))
+```
+
+Fill in missing values. I'll use the overall mean for the time interval.
+
+```{r}
+# create a new column. if steps is not NA, use that value. else, replace the NA with mean from byint, where byint$interval == dat$interval
+
+dat$steps.imputed <- ifelse(!is.na(dat$steps), dat$steps, 
+                            byint$steps.int[byint$interval %in% dat$interval])
+
+# see if that worked; first few rows of steps.imputed should match first few rows of byint$steps.int
+head(dat)
+head(byint)
+
+# last few rows should match too
+tail(dat)
+tail(byint)
+
+#make sure all NAs are gone; this should be 0:
+sum(is.na(dat$steps.imputed))
+
+```
+
+Instructions say to make a whole new data frame for this that looks the same as the original, but without NAs.
+
+```{r}
+dat2 <- dat %>%
+    mutate(steps = steps.imputed) %>%
+    select(-steps.imputed)
+
+# make sure that looks right
+head(dat2)
+tail(dat2)
+```
+
+
+I'll do the same thing as above to group the dataset by date, make a histogram of number of steps per day, and calculate the mean and median.
+
+```{r, fig.height=4.5}
+byday2 <- dat2 %>%
+    group_by(date) %>%
+    summarize(steps.total = sum(steps))
+
+# check it
+head(byday2)
+summary(byday2)
+
+hist(byday2$steps.total, col="lightgray",
+     breaks=10,
+     main="Histogram of total number of steps per day \nwith no NAs in dataset",
+     xlab="# steps")
+
+```
+
+__Calculating the mean and median:__
+
+```{r}
+mean(byday2$steps.total)
+median(byday2$steps.total)
+```
+
+The mean is exactly the same as above, and now the median is exactly the same as the mean. Replacing missing values with means changed the median. Not by much, but a little bit. It didn't change the shape of the histogram much, but it did increase the frequency of the 10000 bin and made it slightly taller and narrower of a distribution.
 
 
 ## Are there differences in activity patterns between weekdays and weekends?
+
+Now to make a column for weekday/weekend, then make a plot of steps per time interval split by weekday vs. weekend.
+
+```{r}
+dat2$weekday <- wday(dat2$date, label=TRUE)
+dat2$day.type <- factor(ifelse(dat2$weekday %in% c("Sun", "Sat"), "weekend", "weekday"))
+
+# make sure that worked
+table(dat2$weekday, dat2$day.type)
+
+# calculate averages by day type and interval
+byint2 <- dat2 %>%
+    group_by(day.type, interval) %>%
+    summarize(steps.int = mean(steps, na.rm=TRUE))
+
+ggplot(byint2, aes(x=interval, y=steps.int, col=day.type)) +
+    geom_line(lwd=1) +
+    geom_point() +
+    facet_wrap(~day.type, ncol=1) +
+    theme_bw() +
+    ggtitle("Number of steps taken throughout day \naveraged across weekends and weekdays") +
+    xlab("Time Interval") +
+    ylab("# steps in 5-minute interval")
+```
+
+Looks like there are differences in walking patterns between weekdays and weekends. The weekend doesn't contain a big spike at 8:35 am like weekdays do, and the number of steps throughout the day seems more evenly distributed. The test subject also starts walking later in the day on weekends, so presumably wakes up later, and also goes to bed later.
